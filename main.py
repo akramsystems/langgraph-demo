@@ -1,104 +1,42 @@
 from typing import Annotated
+
+from langchain_anthropic import ChatAnthropic
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_core.messages import BaseMessage
 from typing_extensions import TypedDict
 
-from langchain_core.messages import HumanMessage
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.graph.state import CompiledStateGraph
-from dotenv import load_dotenv
+from langgraph.prebuilt import ToolNode, tools_condition
 
-from basic_tool import BasicToolNode
-
-
-load_dotenv()
-
-# Define the tools
-tool = TavilySearchResults(max_results=2)
-tools = [tool]
-tool_node = BasicToolNode(tools=tools)
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
-llm_with_tools = llm.bind_tools(tools)
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-def route_tools(
-    state: State,
-):
-    """
-    Use in the conditional_edge to route to the ToolNode if the last message
-    has tool calls. Otherwise, route to the end.
-    """
-    if isinstance(state, list):
-        ai_message = state[-1]
-    elif messages := state.get("messages", []):
-        ai_message = messages[-1]
-    else:
-        raise ValueError(f"No messages found in input state to tool_edge: {state}")
-    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        return "tools"
-    return END
+
+graph_builder = StateGraph(State)
+
+
+tool = TavilySearchResults(max_results=2)
+tools = [tool]
+llm = ChatAnthropic(model="gpt-4o-mini")
+llm_with_tools = llm.bind_tools(tools)
+
 
 def chatbot(state: State):
     return {"messages": [llm_with_tools.invoke(state["messages"])]}
 
-def build_graph() -> CompiledStateGraph:
-    # Build the graph
-    graph_builder = StateGraph(State)
-    graph_builder.add_node("chatbot", chatbot)
-    graph_builder.add_node("tools", tool_node)
 
-    # Add Conditional Edge
-    graph_builder.add_conditional_edges(
-        "chatbot",
-        route_tools,
-        # The following dictionary lets you tell the graph to interpret the condition's outputs as a specific node
-        # It defaults to the identity function, but if you
-        # want to use a node named something else apart from "tools",
-        # You can update the value of the dictionary to something else
-        # e.g., "tools": "my_tools"
-        {"tools": "tools", END: END},
-    )
-    
-    # Add edges
-    graph_builder.add_edge("tools", "chatbot")
-    graph_builder.add_edge(START, "chatbot")
-    return graph_builder.compile()
+graph_builder.add_node("chatbot", chatbot)
 
-graph = build_graph()
+tool_node = ToolNode(tools=[tool])
+graph_builder.add_node("tools", tool_node)
 
-def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
-        for value in event.values():
-            breakpoint()
-            print("Assistant:", value["messages"][-1].content)
-
-def run_chatbot():
-    while True:
-        try:
-            user_input = input("User: ")
-            if user_input.lower() in ["exit", "quit", "q"]:
-                print("Exiting...")
-                break
-
-            stream_graph_updates(user_input)
-        except Exception as e:
-            # fallback if input is not available
-            user_input = "What do you know about LangGraph?"
-            print("User: " + user_input)
-            stream_graph_updates(user_input)
-
-
-
-
-if __name__ == "__main__":
-    # VISUALIZE THE GRAPH
-    # img_data = graph.get_graph().draw_ascii()
-    img_data = graph.get_graph().draw_mermaid_png()
-    with open("graph.png", "wb") as f:
-        f.write(img_data)
-    # print(img_data)
-    run_chatbot()
-    
+graph_builder.add_conditional_edges(
+    "chatbot",
+    tools_condition,
+)
+# Any time a tool is called, we return to the chatbot to decide the next step
+graph_builder.add_edge("tools", "chatbot")
+graph_builder.set_entry_point("chatbot")
+graph = graph_builder.compile()
