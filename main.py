@@ -1,8 +1,7 @@
 from typing import Annotated
 
-from langchain_anthropic import ChatAnthropic
+from langchain_anthropic import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.messages import BaseMessage
 from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph
@@ -19,7 +18,7 @@ graph_builder = StateGraph(State)
 
 tool = TavilySearchResults(max_results=2)
 tools = [tool]
-llm = ChatAnthropic(model="gpt-4o-mini")
+llm = ChatOpenAI(model="gpt-4o-mini")
 llm_with_tools = llm.bind_tools(tools)
 
 
@@ -40,3 +39,23 @@ graph_builder.add_conditional_edges(
 graph_builder.add_edge("tools", "chatbot")
 graph_builder.set_entry_point("chatbot")
 graph = graph_builder.compile()
+def stream_graph_updates(user_input: str):
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+        for value in event.values():
+            print("Assistant:", value["messages"][-1].content)
+
+
+while True:
+    try:
+        user_input = input("User: ")
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
+            break
+
+        stream_graph_updates(user_input)
+    except:
+        # fallback if input() is not available
+        user_input = "What do you know about LangGraph?"
+        print("User: " + user_input)
+        stream_graph_updates(user_input)
+        break
