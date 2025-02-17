@@ -6,6 +6,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.graph.state import CompiledStateGraph
 from dotenv import load_dotenv
 
 from basic_tool import BasicToolNode
@@ -17,34 +18,33 @@ load_dotenv()
 tool = TavilySearchResults(max_results=2)
 tools = [tool]
 tool_node = BasicToolNode(tools=tools)
-
-
-# Define the LLM with tools
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 llm_with_tools = llm.bind_tools(tools)
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-def route_tools(state: State) -> str:
+def route_tools(
+    state: State,
+):
     """
-    Use in the conditional_edge to route to the ToolNode if the last message has tool calls.  Otherwise, route to the end.
+    Use in the conditional_edge to route to the ToolNode if the last message
+    has tool calls. Otherwise, route to the end.
     """
     if isinstance(state, list):
         ai_message = state[-1]
     elif messages := state.get("messages", []):
         ai_message = messages[-1]
     else:
-        raise ValueError("No AI message found in the state")
-    
+        raise ValueError(f"No messages found in input state to tool_edge: {state}")
     if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
         return "tools"
     return END
 
-def chatbot(state: State) -> State:
+def chatbot(state: State):
     return {"messages": [llm_with_tools.invoke(state["messages"])]}
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     # Build the graph
     graph_builder = StateGraph(State)
     graph_builder.add_node("chatbot", chatbot)
@@ -54,6 +54,11 @@ def build_graph() -> StateGraph:
     graph_builder.add_conditional_edges(
         "chatbot",
         route_tools,
+        # The following dictionary lets you tell the graph to interpret the condition's outputs as a specific node
+        # It defaults to the identity function, but if you
+        # want to use a node named something else apart from "tools",
+        # You can update the value of the dictionary to something else
+        # e.g., "tools": "my_tools"
         {"tools": "tools", END: END},
     )
     
@@ -64,10 +69,10 @@ def build_graph() -> StateGraph:
 
 graph = build_graph()
 
-
 def stream_graph_updates(user_input: str):
     for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
         for value in event.values():
+            breakpoint()
             print("Assistant:", value["messages"][-1].content)
 
 def run_chatbot():
@@ -82,7 +87,7 @@ def run_chatbot():
         except Exception as e:
             # fallback if input is not available
             user_input = "What do you know about LangGraph?"
-            print("User: ", user_input)
+            print("User: " + user_input)
             stream_graph_updates(user_input)
 
 
@@ -95,5 +100,5 @@ if __name__ == "__main__":
     with open("graph.png", "wb") as f:
         f.write(img_data)
     # print(img_data)
-    # run_chatbot()
+    run_chatbot()
     
