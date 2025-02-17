@@ -1,25 +1,30 @@
 from typing import Annotated
 from typing_extensions import TypedDict
 
-from langchain_core.messages import HumanMessage
+from dotenv import load_dotenv
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
-from dotenv import load_dotenv
-
-from basic_tool import BasicToolNode
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode, tools_condition
 
 
 load_dotenv()
 
+memory = MemorySaver()
+
 # Define the tools
 tool = TavilySearchResults(max_results=2)
 tools = [tool]
-tool_node = BasicToolNode(tools=tools)
+tool_node = ToolNode(tools=tools)
+
+# Define the LLM with tools
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 llm_with_tools = llm.bind_tools(tools)
+
+
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -53,24 +58,21 @@ def build_graph() -> CompiledStateGraph:
     # Add Conditional Edge
     graph_builder.add_conditional_edges(
         "chatbot",
-        route_tools,
-        # The following dictionary lets you tell the graph to interpret the condition's outputs as a specific node
-        # It defaults to the identity function, but if you
-        # want to use a node named something else apart from "tools",
-        # You can update the value of the dictionary to something else
-        # e.g., "tools": "my_tools"
-        {"tools": "tools", END: END},
+        tools_condition
     )
     
     # Add edges
     graph_builder.add_edge("tools", "chatbot")
     graph_builder.add_edge(START, "chatbot")
-    return graph_builder.compile()
+    return graph_builder.compile(checkpointer=memory)
 
 graph = build_graph()
 
 def stream_graph_updates(user_input: str):
-    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+    for event in graph.stream(
+        {"messages": [{"role": "user", "content": user_input}]},
+        stream_mode="values"
+    ):
         for value in event.values():
             breakpoint()
             print("Assistant:", value["messages"][-1].content)
@@ -95,10 +97,8 @@ def run_chatbot():
 
 if __name__ == "__main__":
     # VISUALIZE THE GRAPH
-    # img_data = graph.get_graph().draw_ascii()
     img_data = graph.get_graph().draw_mermaid_png()
     with open("graph.png", "wb") as f:
         f.write(img_data)
-    # print(img_data)
     run_chatbot()
     
