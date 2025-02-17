@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from langchain_anthropic import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from typing_extensions import TypedDict
 
