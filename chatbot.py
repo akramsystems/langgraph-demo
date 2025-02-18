@@ -1,6 +1,8 @@
 from state import State
 from llm import llm_with_tools
-
+from langchain_core.messages import ChatMessage
 
 def chatbot(state: State):
-    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    message = llm_with_tools.invoke(state["messages"])
+    assert len(message.tool_calls) <= 1
+    return {"messages": [message]}

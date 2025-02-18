@@ -1,16 +1,19 @@
 from langgraph.graph import StateGraph, START
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import tools_condition
+from langgraph.prebuilt import tools_condition, ToolNode
 from langgraph.checkpoint.memory import BaseCheckpointSaver
+from langgraph.checkpoint.memory import MemorySaver
 
 from state import State
 from chatbot import chatbot
-from tools import tool_node
+from tools import tools
 
-def build_graph(memory: BaseCheckpointSaver) -> CompiledStateGraph:
+def build_graph() -> CompiledStateGraph:
     # Build the graph
     graph_builder = StateGraph(State)
     graph_builder.add_node("chatbot", chatbot)
+    
+    tool_node = ToolNode(tools)
     graph_builder.add_node("tools", tool_node)
 
     # Add Conditional Edge
@@ -22,6 +25,8 @@ def build_graph(memory: BaseCheckpointSaver) -> CompiledStateGraph:
     # Add edges
     graph_builder.add_edge("tools", "chatbot")
     graph_builder.add_edge(START, "chatbot")
+
+    memory = MemorySaver()
     return graph_builder.compile(checkpointer=memory)
 
 def stream_graph_updates(user_input: str, graph: CompiledStateGraph, config: dict):
