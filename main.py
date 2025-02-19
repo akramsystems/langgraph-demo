@@ -78,7 +78,6 @@ def _print_step(step: dict) -> None:
         if task_name == "agent":
             continue # just stream from tasks
         if task_name == "__interrupt__":
-            breakpoint()
             print(f"{result[0].value['query']}")
         else:
             result.pretty_print()
@@ -93,7 +92,6 @@ user_message = {
         "Separately, can you check the weather in San Francisco?"
     ),
 }
-print(user_message)
 
 for step in agent.stream([user_message], config):
     _print_step(step)
