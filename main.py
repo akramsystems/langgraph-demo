@@ -1,66 +1,47 @@
-from dotenv import load_dotenv; load_dotenv()
-
-from langgraph.types import Command
-from graph import build_graph, stream_graph_updates
-
-
-graph = build_graph()
-
-
-def run_chatbot():
-    
-    user_input = (
-        "Can you look up when LangGraph was released? "
-        "When you have the answer, use the human_assistance tool for review."
-    )
-    config = {"configurable": {"thread_id": "1"}}
-
-    events = graph.stream(
-        {"messages": [{"role": "user", "content": user_input}]},
-        config,
-        stream_mode="values",
-    )
-    for event in events:
-        if "messages" in event:
-            event["messages"][-1].pretty_print()
-        
-    human_command = Command(
-        resume={
-            "name": "LangGraph",
-            "birthday": "Jan 17, 2024",
-        },
-    )
-
-    events = graph.stream(human_command, config, stream_mode="values")
-    for event in events:
-        if "messages" in event:
-            event["messages"][-1].pretty_print()
-
-
-    return
-    # while True:
-    #     try:
-    #         user_input = input("User: ")
-    #         if user_input.lower() in ["exit", "quit", "q"]:
-    #             print("Exiting...")
-    #             break
-    #         stream_graph_updates(user_input, graph, config)
-    #     except Exception as e:
-    #         # fallback if input is not available
-    #         user_input = "Remember my name?"
-    #         stream_graph_updates(user_input, graph, config)
-    #         break
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START
+from langgraph.func import entrypoint, task
+from langgraph.types import Command, interrupt
+from langgraph.checkpoint.memory import MemorySaver
+llm = ChatOpenAI(model="gpt-4o-mini")
 
 
 
 
+@task
+def step_1(input_query):
+    """Append bar."""
+    return f"{input_query} bar"
 
-if __name__ == "__main__":
-    # VISUALIZE THE GRAPH
-    img_data = graph.get_graph().draw_mermaid_png()
-    with open("graph.png", "wb") as f:
-        f.write(img_data)
-    img_data = graph.get_graph().draw_ascii()
-    print(img_data)
-    run_chatbot()
-    
+@task
+def human_feedback(input_query):
+    """Append user input."""
+    # the feedback is what ever the resume value was in our input_query
+    # in this case the resume value was "BAZ" because we passed it in
+    # "Command(resume="BAZ") other words blah blah blah" as the input_query
+    feedback = interrupt(f"Please provide feedback: {input_query}")
+    return f"{input_query} {feedback}"
+
+@task
+def step_3(input_query):
+    """Append qux."""
+    return f"{input_query} qux"
+
+checkpointer = MemorySaver()
+
+@entrypoint(checkpointer=checkpointer)
+def graph(input_query):
+    breakpoint()
+    result_1 = step_1(input_query).result()
+    breakpoint()
+    result_2 = human_feedback(result_1).result()
+    breakpoint()
+    result_3 = step_3(result_2).result()
+    breakpoint()
+    return result_3
+
+config = {"configurable": {"thread_id": "1"}}
+
+for event in graph.stream(Command(resume="BAZ"), config):
+    print(event)
+    print("-"*100)
