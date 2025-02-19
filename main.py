@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START
 from langgraph.func import entrypoint, task
-from langgraph.types import Command, interrupt
+from langgraph.types import Command, interrupt, Interrupt
 from langgraph.checkpoint.memory import MemorySaver
 llm = ChatOpenAI(model="gpt-4o-mini")
 
@@ -31,17 +31,20 @@ checkpointer = MemorySaver()
 
 @entrypoint(checkpointer=checkpointer)
 def graph(input_query):
-    breakpoint()
     result_1 = step_1(input_query).result()
-    breakpoint()
     result_2 = human_feedback(result_1).result()
-    breakpoint()
     result_3 = step_3(result_2).result()
-    breakpoint()
     return result_3
 
 config = {"configurable": {"thread_id": "1"}}
 
-for event in graph.stream(Command(resume="BAZ"), config):
+
+# Not to RESUME we have to run the graph.stream()
+# with command
+for event in graph.stream("foo", config):
     print(event)
+    if "__interrupt__" in event:
+        human_input = input("Please provide feedback: ")
+        for event in graph.stream(Command(resume=human_input), config):
+            print(event)
     print("-"*100)
